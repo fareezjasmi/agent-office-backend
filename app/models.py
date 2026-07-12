@@ -52,6 +52,7 @@ class Run(BaseModel):
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
     goal: str
+    stack: str = "node"  # key into app.agents.sandbox.STACKS
     status: RunStatus = RunStatus.PENDING
     tasks: list[Task] = Field(default_factory=list)
     result: str | None = None

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     coder_model: str = "sonnet"
     reviewer_model: str = "haiku"
 
+    # Sandbox image for Flutter-stack goals. Must be linux/arm64 on Apple
+    # Silicon or builds crawl under emulation; the default ships both.
+    flutter_sandbox_image: str = "ghcr.io/cirruslabs/flutter:stable"
+
 
 settings = Settings()
 

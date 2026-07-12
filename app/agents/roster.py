@@ -9,6 +9,7 @@ context with only the tools listed here.
 
 from claude_agent_sdk import AgentDefinition
 
+from app.agents.sandbox import DEFAULT_STACK, STACKS, StackSpec
 from app.config import settings
 from app.models import Agent
 
@@ -30,7 +31,9 @@ When given a high-level goal:
 3. After the coder finishes a task, dispatch the reviewer agent with the
    original spec and ask it to verify the coder's output. If the reviewer
    finds problems, send the task back to the coder with the reviewer's
-   findings.
+   findings — and after the coder applies fixes, dispatch the reviewer
+   again. A task counts as done only when the reviewer passes it; never
+   sign off on fixes yourself.
 4. When all tasks pass review, check the combined result against the original
    goal and produce a final summary: tasks completed, files created or
    changed, and any known gaps.
@@ -41,14 +44,19 @@ time and wait for its result before continuing (run subagents in the
 foreground, never in the background).
 """
 
+
+def pm_system_prompt(stack: StackSpec) -> str:
+    return (
+        f"{PM_PERSONA}\n"
+        f"This goal's project stack is {stack.label}. {stack.pm_notes}\n"
+    )
+
+
 # --- Subagents ---------------------------------------------------------------
 
-CODER = AgentDefinition(
-    description=(
-        "Software engineer that implements coding tasks. Use for writing, "
-        "editing, and running code."
-    ),
-    prompt="""\
+
+def _coder_prompt(stack: StackSpec) -> str:
+    return f"""\
 You are the Coder Agent in Agent Office. You receive one task at a time from
 the PM, with a spec and a definition of done.
 
@@ -59,15 +67,33 @@ the PM, with a spec and a definition of done.
   you verified it works.
 
 Executing commands: you have no Bash tool. Use the run_command tool, which
-runs inside a sandboxed Linux container (node:20-slim) where the task
-directory is mounted at /workspace. Use relative paths in commands. Node and
-npm are available; Python is NOT — write and test code in JavaScript/Node
-unless the spec says otherwise. Read/Write/Edit operate on the same task
-directory, so files you write are immediately visible to your commands.
-""",
-    tools=["Read", "Write", "Edit", "mcp__sandbox__run_command"],
-    model=settings.coder_model,
-)
+runs inside a sandboxed Linux container ({stack.image}) where the task
+directory is mounted at /workspace. Use relative paths in commands.
+{stack.coder_notes}
+Read/Write/Edit operate on the same task directory, so files you write are
+immediately visible to your commands.
+"""
+
+
+def _coder(stack: StackSpec) -> AgentDefinition:
+    return AgentDefinition(
+        description=(
+            "Software engineer that implements coding tasks. Use for writing, "
+            "editing, and running code."
+        ),
+        prompt=_coder_prompt(stack),
+        tools=["Read", "Write", "Edit", "mcp__sandbox__run_command"],
+        model=settings.coder_model,
+    )
+
+
+def build_subagents(stack_id: str) -> dict[str, AgentDefinition]:
+    """Subagents for one run, with the coder briefed on the run's stack."""
+    stack = STACKS.get(stack_id, STACKS[DEFAULT_STACK])
+    return {"coder": _coder(stack), "reviewer": REVIEWER}
+
+
+CODER = _coder(STACKS[DEFAULT_STACK])
 
 REVIEWER = AgentDefinition(
     description=(
@@ -88,12 +114,6 @@ you only read and report.
     tools=["Read", "Grep", "Glob"],
     model=settings.reviewer_model,
 )
-
-# Subagents passed to ClaudeAgentOptions(agents=...)
-SUBAGENTS: dict[str, AgentDefinition] = {
-    "coder": CODER,
-    "reviewer": REVIEWER,
-}
 
 # --- Dashboard-facing roster (drives GET /agents and the office-floor view) --
 

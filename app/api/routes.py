@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.agents.orchestrator import AGENT_STATUS, RUNS, run_goal
 from app.agents.roster import ROSTER
+from app.agents.sandbox import DEFAULT_STACK, STACKS
 from app.events import bus
 from app.models import Agent, Run
 
@@ -18,6 +19,7 @@ _background_tasks: set[asyncio.Task] = set()
 
 class GoalRequest(BaseModel):
     goal: str
+    stack: str = DEFAULT_STACK
 
 
 @router.get("/agents", response_model=list[Agent])
@@ -27,7 +29,12 @@ def list_agents() -> list[Agent]:
 
 @router.post("/goals", status_code=202, response_model=Run)
 async def create_goal(body: GoalRequest) -> Run:
-    run = Run(goal=body.goal)
+    if body.stack not in STACKS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown stack '{body.stack}'; valid: {sorted(STACKS)}",
+        )
+    run = Run(goal=body.goal, stack=body.stack)
     RUNS[run.id] = run
     task = asyncio.create_task(run_goal(run))
     _background_tasks.add(task)

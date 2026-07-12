@@ -13,6 +13,8 @@ from pathlib import Path
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    PermissionResultAllow,
+    PermissionResultDeny,
     ResultMessage,
     TextBlock,
     ToolResultBlock,
@@ -21,8 +23,8 @@ from claude_agent_sdk import (
     query,
 )
 
-from app.agents.roster import PM_PERSONA, ROSTER, SUBAGENTS
-from app.agents.sandbox import ContainerManager, build_sandbox
+from app.agents.roster import ROSTER, build_subagents, pm_system_prompt
+from app.agents.sandbox import DEFAULT_STACK, STACKS, ContainerManager, build_sandbox
 from app.config import sdk_env, settings
 from app.events import bus
 from app.models import AgentStatus, Run, RunStatus, Task, TaskStatus
@@ -39,6 +41,42 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2] / "workspace"
 MAX_EVENTS = 500
 _VERDICT_FAIL = re.compile(r"\bFAIL\b")
 _VERDICT_PASS = re.compile(r"\bPASS\b")
+
+# Harness bookkeeping tools the PM may use freely (no side effects outside
+# the conversation). Everything else not in allowed_tools gets denied.
+_HARMLESS_TOOLS = {
+    "TodoWrite",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
+    "TaskGet",
+    "TaskOutput",
+}
+
+
+async def _gate_tool(tool_name: str, input_data: dict, _context) -> object:
+    """Permission callback for tools not auto-allowed by allowed_tools.
+
+    Two jobs:
+    - Force every subagent dispatch into the foreground. Claude honors the
+      persona instruction to do this, but other models (via gateways) ignore
+      it; a background dispatch returns launch metadata instead of the
+      subagent's result, which breaks task/status tracking.
+    - Deny everything else (notably local Bash on the main thread) so
+      "commands only run inside task containers" holds for every model.
+    """
+    if tool_name in ("Agent", "Task"):
+        return PermissionResultAllow(
+            updated_input={**input_data, "run_in_background": False}
+        )
+    if tool_name in _HARMLESS_TOOLS:
+        return PermissionResultAllow()
+    return PermissionResultDeny(
+        message=(
+            f"{tool_name} is not available. Delegate coding work to the coder "
+            "agent; commands run only inside its sandboxed container."
+        )
+    )
 
 
 def set_agent_status(agent_id: str, status: AgentStatus) -> None:
@@ -128,11 +166,20 @@ async def _on_dispatch_result(
     run: Run, block: ToolResultBlock, dispatches: dict, sandbox: ContainerManager
 ) -> None:
     """A subagent finished — its final message came back as the tool result."""
-    entry = dispatches.pop(block.tool_use_id, None)
+    entry = dispatches.get(block.tool_use_id)
     if entry is None:
         return
     subagent, task = entry
     text = _result_text(block)
+
+    if "Async agent launched" in text[:100]:
+        # A background dispatch slipped past _gate_tool: this is launch
+        # metadata, not the subagent's result. Leave the dispatch pending so
+        # we don't mark agents idle / tear down the sandbox prematurely.
+        _event(run, subagent or "subagent", "background_dispatch",
+               "subagent launched in background; result tracking degraded")
+        return
+    dispatches.pop(block.tool_use_id, None)
 
     if subagent == "coder":
         set_agent_status("coder", AgentStatus.IDLE)
@@ -189,6 +236,15 @@ async def _handle_message(
     elif isinstance(message, ResultMessage):
         run.result = message.result or ""
         run.status = RunStatus.FAILED if message.is_error else RunStatus.COMPLETED
+        if run.status == RunStatus.COMPLETED:
+            # The PM signed off on the whole goal, which supersedes per-task
+            # verdict tracking (e.g. a PM that verified fixes itself instead
+            # of re-dispatching the reviewer). Sweep stragglers to done.
+            for task in run.tasks:
+                if task.status != TaskStatus.DONE:
+                    task.status = TaskStatus.DONE
+                    _publish_task(run, task)
+                    _event(run, "pm", "task_closed", f"closed with run: {task.title}")
         _event(run, "pm", "run_finished", run.status.value)
         _publish_run(run)
 
@@ -197,17 +253,19 @@ async def run_goal(run: Run) -> None:
     workdir = WORKSPACE_ROOT / run.id
     workdir.mkdir(parents=True, exist_ok=True)
 
+    stack = STACKS.get(run.stack, STACKS[DEFAULT_STACK])
     sandbox, sandbox_server = build_sandbox(
         run, workdir, on_event=lambda kind, detail: _event(run, "coder", kind, detail)
     )
     options = ClaudeAgentOptions(
-        system_prompt=PM_PERSONA,
-        agents=SUBAGENTS,
+        system_prompt=pm_system_prompt(stack),
+        agents=build_subagents(run.stack),
         # Auto-approve the roster's tools so subagents never hang on a
         # permission prompt. No "Bash" here: commands only run inside the
-        # per-task container via the sandbox MCP tool.
+        # per-task container via the sandbox MCP tool. "Agent" is deliberately
+        # NOT listed — auto-allowed tools skip can_use_tool, and _gate_tool
+        # must see every dispatch to force it into the foreground.
         allowed_tools=[
-            "Agent",
             "Read",
             "Write",
             "Edit",
@@ -215,6 +273,7 @@ async def run_goal(run: Run) -> None:
             "Glob",
             "mcp__sandbox__run_command",
         ],
+        can_use_tool=_gate_tool,
         mcp_servers={"sandbox": sandbox_server},
         cwd=str(workdir),
         model=settings.pm_model,
@@ -225,10 +284,15 @@ async def run_goal(run: Run) -> None:
     run.status = RunStatus.RUNNING
     _publish_run(run)
     set_agent_status("pm", AgentStatus.THINKING)
-    _event(run, "pm", "run_started", run.goal)
+    _event(run, "pm", "run_started", f"[{stack.label}] {run.goal}")
+
+    async def _goal_stream():
+        # can_use_tool requires streaming input mode, so the goal is wrapped
+        # in an async generator instead of passed as a plain string.
+        yield {"type": "user", "message": {"role": "user", "content": run.goal}}
 
     try:
-        async for message in query(prompt=run.goal, options=options):
+        async for message in query(prompt=_goal_stream(), options=options):
             await _handle_message(run, message, dispatches, sandbox)
     except Exception as exc:  # noqa: BLE001 — surface any SDK failure on the run
         run.status = RunStatus.FAILED

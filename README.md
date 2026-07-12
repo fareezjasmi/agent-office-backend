@@ -22,10 +22,15 @@ to `.env` and follow the comments. Restart the server after editing it.
 # Roster with live status chips
 curl localhost:8000/agents
 
-# Submit a goal — returns 202 with a run id; the PM works in the background
+# Submit a goal — returns 202 with a run id; the PM works in the background.
+# "stack" picks the coder's sandbox: "node" (default) or "flutter".
 curl -X POST localhost:8000/goals \
   -H 'content-type: application/json' \
-  -d '{"goal": "Create a Python script fizzbuzz.py that prints FizzBuzz for 1 to 20, with a test."}'
+  -d '{"goal": "Create fizzbuzz.js that prints FizzBuzz for 1 to 20, with a test.", "stack": "node"}'
+
+curl -X POST localhost:8000/goals \
+  -H 'content-type: application/json' \
+  -d '{"goal": "Create a Flutter counter app with a widget test.", "stack": "flutter"}'
 
 # Poll the run: status, task board state, event log, final PM summary
 curl localhost:8000/goals/<run_id>
@@ -55,7 +60,8 @@ that's where the Coder's files land. State is in-memory only (POC).
 
 1. ✅ FastAPI scaffold + 3-agent roster + goal dispatch
 2. ✅ Docker-per-task execution (coder has no Bash — only `run_command`,
-   which execs in a per-task `node:20-slim` container)
+   which execs in a per-task container chosen by the run's stack:
+   `node:20-slim` or a Flutter SDK image — see `app/agents/sandbox.py`)
 3. ✅ WebSocket status stream
 4. ✅ Next.js dashboard: agent grid (`../frontend`)
 5. ✅ Next.js dashboard: task board + per-agent threads + goal form

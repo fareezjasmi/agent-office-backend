@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Money Tracker</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>💰 Money Tracker</h1>
+    </header>
+
+    <main>
+      <!-- Summary Dashboard -->
+      <section class="summary" aria-label="Financial summary">
+        <div class="summary-card card balance-card">
+          <h2 class="summary-label">Total Balance</h2>
+          <p class="summary-value" id="total-balance">$0.00</p>
+        </div>
+        <div class="summary-card card income-card">
+          <h2 class="summary-label">Total Income</h2>
+          <p class="summary-value income-text" id="total-income">$0.00</p>
+        </div>
+        <div class="summary-card card expense-card">
+          <h2 class="summary-label">Total Expenses</h2>
+          <p class="summary-value expense-text" id="total-expenses">$0.00</p>
+        </div>
+      </section>
+
+      <!-- Add Transaction Form -->
+      <section class="add-transaction" aria-label="Add a new transaction">
+        <h2>Add Transaction</h2>
+        <form id="transaction-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="description">Description</label>
+              <input type="text" id="description" name="description" placeholder="e.g. Groceries, Freelance payment..." required>
+            </div>
+            <div class="form-group">
+              <label for="amount">Amount</label>
+              <input type="number" id="amount" name="amount" placeholder="0.00" min="0.01" step="0.01" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="type">Type</label>
+              <select id="type" name="type">
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="category">Category</label>
+              <select id="category" name="category"></select>
+            </div>
+            <div class="form-group">
+              <label for="date">Date</label>
+              <input type="date" id="date" name="date">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Add Transaction</button>
+        </form>
+      </section>
+
+      <!-- Filters / Search Bar -->
+      <section class="filters" aria-label="Filter and search transactions">
+        <h2>Transactions</h2>
+        <div class="filter-controls">
+          <div class="filter-group search-group">
+            <input type="text" id="search-input" placeholder="Search transactions..." aria-label="Search transactions">
+          </div>
+          <div class="filter-group">
+            <select id="filter-type" aria-label="Filter by type">
+              <option value="all">All</option>
+              <option value="income">Income</option>
+              <option value="expense">Expense</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <select id="filter-category" aria-label="Filter by category">
+              <option value="all">All Categories</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <select id="sort-order" aria-label="Sort transactions">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="highest">Highest amount</option>
+              <option value="lowest">Lowest amount</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Transaction List -->
+      <section class="transaction-list" aria-label="Transaction list">
+        <div id="transactions-container">
+          <p class="empty-state">No transactions yet. Add your first one above!</p>
+        </div>
+      </section>
+
+      <!-- Chart Section -->
+      <section class="chart-section" aria-label="Category chart">
+        <h2>Spending by Category</h2>
+        <div class="chart-wrapper">
+          <canvas id="categoryChart"></canvas>
+        </div>
+        <p class="chart-empty" id="chart-empty">Add some transactions to see your spending breakdown.</p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
