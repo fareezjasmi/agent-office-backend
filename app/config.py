@@ -14,6 +14,8 @@ Model IDs are passed through as-is, so with a gateway you can use its model
 names (e.g. "gpt-5.2", "gemini/gemini-3-pro") per agent.
 """
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +37,20 @@ class Settings(BaseSettings):
     # Sandbox image for Flutter-stack goals. Must be linux/arm64 on Apple
     # Silicon or builds crawl under emulation; the default ships both.
     flutter_sandbox_image: str = "ghcr.io/cirruslabs/flutter:stable"
+
+    # Comma-separated absolute directory prefixes that goals may target as an
+    # existing-project workspace (agents get read-write access there, on the
+    # host and in the container). Empty = external workspaces disabled;
+    # follow-ups on past runs under backend/workspace/ are always allowed.
+    workspace_allowlist: str = ""
+
+    @property
+    def workspace_allowlist_paths(self) -> list[Path]:
+        return [
+            Path(entry.strip()).expanduser()
+            for entry in self.workspace_allowlist.split(",")
+            if entry.strip()
+        ]
 
 
 settings = Settings()

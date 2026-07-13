@@ -1,65 +1,19 @@
-import 'dart:math';
+import 'dart:async';
+import 'dart:convert';
 
+import 'package:http/http.dart' as http;
 import 'package:weather_app/models/weather.dart';
 
 class WeatherService {
-  static final List<Weather> _presetCities = [
-    Weather(
-      cityName: 'London',
-      temperature: 15,
-      condition: 'Cloudy',
-      humidity: 72,
-      windSpeed: 18,
-    ),
-    Weather(
-      cityName: 'Tokyo',
-      temperature: 22,
-      condition: 'Partly Cloudy',
-      humidity: 65,
-      windSpeed: 12,
-    ),
-    Weather(
-      cityName: 'New York',
-      temperature: 28,
-      condition: 'Sunny',
-      humidity: 55,
-      windSpeed: 10,
-    ),
-    Weather(
-      cityName: 'Sydney',
-      temperature: 26,
-      condition: 'Sunny',
-      humidity: 60,
-      windSpeed: 15,
-    ),
-    Weather(
-      cityName: 'Mumbai',
-      temperature: 32,
-      condition: 'Rainy',
-      humidity: 85,
-      windSpeed: 8,
-    ),
-    Weather(
-      cityName: 'Cairo',
-      temperature: 38,
-      condition: 'Sunny',
-      humidity: 20,
-      windSpeed: 14,
-    ),
-  ];
+  final http.Client _httpClient;
 
-  static final List<String> _conditions = [
-    'Sunny',
-    'Cloudy',
-    'Rainy',
-    'Snowy',
-    'Partly Cloudy',
-    'Foggy',
-    'Windy',
-    'Thunderstorm',
-  ];
+  WeatherService({http.Client? client}) : _httpClient = client ?? http.Client();
 
-  static final Random _random = Random();
+  static const String _geocodingBaseUrl =
+      'https://geocoding-api.open-meteo.com/v1/search';
+  static const String _weatherBaseUrl =
+      'https://api.open-meteo.com/v1/forecast';
+  static const Duration _timeout = Duration(seconds: 10);
 
   Future<Weather> getWeather(String cityName) async {
     final trimmed = cityName.trim();
@@ -67,39 +21,72 @@ class WeatherService {
       throw Exception('Please enter a city name');
     }
 
-    // Simulate 1.5s network delay
-    await Future.delayed(const Duration(milliseconds: 1500));
+    try {
+      // Step 1: Geocoding — convert city name to lat/lon
+      final geocodingUri = Uri.parse(_geocodingBaseUrl).replace(
+        queryParameters: {
+          'name': trimmed,
+          'count': '1',
+          'language': 'en',
+          'format': 'json',
+        },
+      );
 
-    // 10% chance of simulated network error
-    if (_random.nextDouble() < 0.1) {
-      throw Exception('Network error: Unable to connect to weather service');
-    }
+      final geocodingResponse =
+          await _httpClient.get(geocodingUri).timeout(_timeout);
 
-    final query = trimmed.toLowerCase();
-
-    // Look for a fuzzy match (city name contains the query)
-    for (final city in _presetCities) {
-      if (city.cityName.toLowerCase().contains(query)) {
-        return city;
+      if (geocodingResponse.statusCode != 200) {
+        throw Exception('Failed to find city. Please try again later.');
       }
+
+      final geocodingData =
+          jsonDecode(geocodingResponse.body) as Map<String, dynamic>;
+      final results = geocodingData['results'] as List<dynamic>?;
+
+      if (results == null || results.isEmpty) {
+        throw Exception(
+            'City not found. Please check the name and try again.');
+      }
+
+      final firstResult = results[0] as Map<String, dynamic>;
+      final weatherFromGeocoding = Weather.fromGeocodingResult(firstResult);
+      final lat = firstResult['latitude'];
+      final lon = firstResult['longitude'];
+
+      // Step 2: Weather — fetch current weather using lat/lon
+      final weatherUri = Uri.parse(_weatherBaseUrl).replace(
+        queryParameters: {
+          'latitude': lat.toString(),
+          'longitude': lon.toString(),
+          'current':
+              'temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code',
+          'timezone': 'auto',
+        },
+      );
+
+      final weatherResponse =
+          await _httpClient.get(weatherUri).timeout(_timeout);
+
+      if (weatherResponse.statusCode != 200) {
+        throw Exception(
+            'Failed to fetch weather data. Please try again later.');
+      }
+
+      final weatherData =
+          jsonDecode(weatherResponse.body) as Map<String, dynamic>;
+      return Weather.fromWeatherForecast(
+          weatherData, weatherFromGeocoding.cityName);
+    } on TimeoutException {
+      throw Exception(
+          'Request timed out. Please check your internet connection.');
+    } on http.ClientException {
+      throw Exception(
+          'Network error. Please check your internet connection.');
+    } catch (e) {
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('An unexpected error occurred. Please try again.');
     }
-
-    // No preset found, generate random plausible weather
-    return _generateRandomWeather(trimmed);
-  }
-
-  Weather _generateRandomWeather(String cityName) {
-    final temp = 0.0 + _random.nextDouble() * 40;
-    final condition = _conditions[_random.nextInt(_conditions.length)];
-    final humidity = _random.nextInt(71) + 20; // 20-90
-    final windSpeed = 0.0 + _random.nextDouble() * 40;
-
-    return Weather(
-      cityName: cityName,
-      temperature: double.parse(temp.toStringAsFixed(1)),
-      condition: condition,
-      humidity: humidity,
-      windSpeed: double.parse(windSpeed.toStringAsFixed(1)),
-    );
   }
 }

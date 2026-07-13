@@ -11,7 +11,7 @@ class WeatherApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Weather App',
+      title: 'Weather Office',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(),
       home: const WeatherScreen(),

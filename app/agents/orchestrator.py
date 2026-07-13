@@ -250,16 +250,22 @@ async def _handle_message(
 
 
 async def run_goal(run: Run) -> None:
-    workdir = WORKSPACE_ROOT / run.id
-    workdir.mkdir(parents=True, exist_ok=True)
+    # An existing-project run works directly in that project (validated by
+    # the API); a greenfield run gets a fresh per-run directory.
+    if run.workspace:
+        workdir = Path(run.workspace)
+    else:
+        workdir = WORKSPACE_ROOT / run.id
+        workdir.mkdir(parents=True, exist_ok=True)
+    existing_project = run.workspace is not None
 
     stack = STACKS.get(run.stack, STACKS[DEFAULT_STACK])
     sandbox, sandbox_server = build_sandbox(
         run, workdir, on_event=lambda kind, detail: _event(run, "coder", kind, detail)
     )
     options = ClaudeAgentOptions(
-        system_prompt=pm_system_prompt(stack),
-        agents=build_subagents(run.stack),
+        system_prompt=pm_system_prompt(stack, existing_project=existing_project),
+        agents=build_subagents(run.stack, existing_project=existing_project),
         # Auto-approve the roster's tools so subagents never hang on a
         # permission prompt. No "Bash" here: commands only run inside the
         # per-task container via the sandbox MCP tool. "Agent" is deliberately
@@ -284,7 +290,8 @@ async def run_goal(run: Run) -> None:
     run.status = RunStatus.RUNNING
     _publish_run(run)
     set_agent_status("pm", AgentStatus.THINKING)
-    _event(run, "pm", "run_started", f"[{stack.label}] {run.goal}")
+    where = f" in {run.workspace}" if run.workspace else ""
+    _event(run, "pm", "run_started", f"[{stack.label}]{where} {run.goal}")
 
     async def _goal_stream():
         # can_use_tool requires streaming input mode, so the goal is wrapped

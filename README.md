@@ -32,6 +32,14 @@ curl -X POST localhost:8000/goals \
   -H 'content-type: application/json' \
   -d '{"goal": "Create a Flutter counter app with a widget test.", "stack": "flutter"}'
 
+# Fix/update an EXISTING project in place: pass "workspace" (absolute path).
+# The path must be under backend/workspace/ (follow-up on a past run) or a
+# WORKSPACE_ALLOWLIST root from .env; one active run per workspace.
+curl -X POST localhost:8000/goals \
+  -H 'content-type: application/json' \
+  -d '{"goal": "Change the app bar title to Tally.", "stack": "flutter",
+       "workspace": "/path/to/backend/workspace/<old_run_id>"}'
+
 # Poll the run: status, task board state, event log, final PM summary
 curl localhost:8000/goals/<run_id>
 

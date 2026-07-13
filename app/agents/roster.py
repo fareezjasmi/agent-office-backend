@@ -45,17 +45,38 @@ foreground, never in the background).
 """
 
 
-def pm_system_prompt(stack: StackSpec) -> str:
-    return (
+_PM_EXISTING_PROJECT_NOTE = """\
+This goal targets an EXISTING project: the workspace already contains its
+code. Before planning, dispatch a task to inspect the current state (layout,
+conventions, how it's built and tested). Write task specs as changes to the
+existing codebase — do not scaffold a new project or rewrite files wholesale
+unless the goal explicitly asks for that. The definition of done must include
+that the project still builds/tests cleanly after the change.
+"""
+
+
+def pm_system_prompt(stack: StackSpec, existing_project: bool = False) -> str:
+    prompt = (
         f"{PM_PERSONA}\n"
         f"This goal's project stack is {stack.label}. {stack.pm_notes}\n"
     )
+    if existing_project:
+        prompt += f"\n{_PM_EXISTING_PROJECT_NOTE}"
+    return prompt
 
 
 # --- Subagents ---------------------------------------------------------------
 
 
-def _coder_prompt(stack: StackSpec) -> str:
+_CODER_EXISTING_PROJECT_NOTE = """
+The workspace contains an existing project that you are modifying in place.
+Read the relevant files before changing them, keep edits minimal, and match
+the existing code style and structure. Never delete, regenerate, or re-scaffold
+the project.
+"""
+
+
+def _coder_prompt(stack: StackSpec, existing_project: bool = False) -> str:
     return f"""\
 You are the Coder Agent in Agent Office. You receive one task at a time from
 the PM, with a spec and a definition of done.
@@ -72,25 +93,27 @@ directory is mounted at /workspace. Use relative paths in commands.
 {stack.coder_notes}
 Read/Write/Edit operate on the same task directory, so files you write are
 immediately visible to your commands.
-"""
+{_CODER_EXISTING_PROJECT_NOTE if existing_project else ""}"""
 
 
-def _coder(stack: StackSpec) -> AgentDefinition:
+def _coder(stack: StackSpec, existing_project: bool = False) -> AgentDefinition:
     return AgentDefinition(
         description=(
             "Software engineer that implements coding tasks. Use for writing, "
             "editing, and running code."
         ),
-        prompt=_coder_prompt(stack),
+        prompt=_coder_prompt(stack, existing_project),
         tools=["Read", "Write", "Edit", "mcp__sandbox__run_command"],
         model=settings.coder_model,
     )
 
 
-def build_subagents(stack_id: str) -> dict[str, AgentDefinition]:
+def build_subagents(
+    stack_id: str, existing_project: bool = False
+) -> dict[str, AgentDefinition]:
     """Subagents for one run, with the coder briefed on the run's stack."""
     stack = STACKS.get(stack_id, STACKS[DEFAULT_STACK])
-    return {"coder": _coder(stack), "reviewer": REVIEWER}
+    return {"coder": _coder(stack, existing_project), "reviewer": REVIEWER}
 
 
 CODER = _coder(STACKS[DEFAULT_STACK])

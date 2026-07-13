@@ -1,0 +1,86 @@
+<div class="page-header">
+  <h1>Budgets</h1>
+</div>
+
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+
+<div class="card form-card">
+  <h2>Set Budget</h2>
+  <form method="POST" action="/budgets" class="budget-form">
+    <input type="hidden" name="month" value="<%= currentMonth %>">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="category">Category</label>
+        <input type="text" id="category" name="category" list="budget-categories" placeholder="Category name" required>
+        <datalist id="budget-categories">
+          <% activeCategories.forEach(function(cat) { %>
+            <option value="<%= cat %>">
+          <% }); %>
+          <option value="Food & Dining">
+          <option value="Housing">
+          <option value="Transportation">
+          <option value="Utilities">
+          <option value="Entertainment">
+          <option value="Healthcare">
+          <option value="Shopping">
+          <option value="Other">
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label for="limit">Monthly Limit ($)</label>
+        <input type="number" id="limit" name="limit" step="0.01" min="0.01" placeholder="0.00" required>
+      </div>
+      <div class="form-group form-group-submit">
+        <label>&nbsp;</label>
+        <button type="submit" class="btn btn-primary">Set Budget</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<% if (budgets.length > 0) { %>
+  <div class="card">
+    <h2>Budget Overview — <%= currentMonth %></h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th class="text-right">Budget</th>
+          <th class="text-right">Spent</th>
+          <th class="text-right">Remaining</th>
+          <th>Progress</th>
+          <th class="text-center">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% budgets.forEach(function(b) { %>
+          <tr>
+            <td><span class="category-badge"><%= b.category %></span></td>
+            <td class="text-right">$<%= Number(b.limit).toFixed(2) %></td>
+            <td class="text-right expense-text">$<%= Number(b.spent).toFixed(2) %></td>
+            <td class="text-right <%= b.remaining >= 0 ? 'income-text' : 'expense-text' %>">
+              $<%= Number(b.remaining).toFixed(2) %>
+            </td>
+            <td>
+              <div class="progress-bar">
+                <div class="progress-fill <%= b.percentage >= 100 ? 'over-budget' : b.percentage >= 80 ? 'warning' : '' %>" style="width: <%= b.percentage %>%"></div>
+              </div>
+              <span class="progress-label"><%= b.percentage %>%</span>
+            </td>
+            <td class="text-center">
+              <form method="POST" action="/budgets/<%= b.id %>/delete" onsubmit="return confirm('Remove this budget?')">
+                <button type="submit" class="btn btn-small btn-danger">Remove</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+<% } else { %>
+  <div class="card">
+    <p class="empty-state">No budgets set for <%= currentMonth %>. Set a budget above to start tracking your spending limits.</p>
+  </div>
+<% } %>

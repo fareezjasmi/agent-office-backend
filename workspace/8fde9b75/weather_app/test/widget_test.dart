@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(const WeatherApp());
 
     // Verify that the empty state is shown
-    expect(find.text('Weather App'), findsOneWidget);
+    expect(find.text('Weather Office'), findsOneWidget);
     expect(find.text('Search for a city to see the weather'), findsOneWidget);
   });
 }
