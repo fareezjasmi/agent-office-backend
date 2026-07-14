@@ -1,11 +1,11 @@
 {
-    "name": "receipt_app",
-    "short_name": "receipt_app",
+    "name": "Agent Office",
+    "short_name": "Agent Office",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#ffffff",
+    "theme_color": "#000000",
+    "description": "Agent Office - AI team coordination",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

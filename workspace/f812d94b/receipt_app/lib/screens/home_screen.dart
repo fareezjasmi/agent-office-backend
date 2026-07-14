@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:receipt_app/models/category.dart';
 import 'package:receipt_app/models/receipt.dart';
-import 'package:receipt_app/services/database_service.dart';
-import 'package:receipt_app/services/storage_service.dart';
-import 'package:receipt_app/widgets/receipt_card.dart';
+import 'package:receipt_app/screens/add_receipt_screen.dart';
+import 'package:receipt_app/screens/scan_receipt_screen.dart';
+import 'package:receipt_app/screens/stats_screen.dart';
+import 'package:receipt_app/widgets/category_chip.dart';
+import 'package:receipt_app/widgets/receipt_list_layouts.dart';
+import 'package:receipt_app/widgets/spending_summary_card.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,277 +15,355 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<Receipt> _receipts = [];
-  List<Category> _categories = [];
+  final List<Receipt> _receipts = List.from(sampleReceipts);
+  ExpenseCategory? _selectedCategory;
   String _searchQuery = '';
-  int? _selectedCategoryId;
-  final TextEditingController _searchController = TextEditingController();
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-
-    _searchController.addListener(_onSearchChanged);
-  }
+  bool _isSearching = false;
+  LayoutDirection _layoutDirection = LayoutDirection.paperTape;
+  final _searchController = TextEditingController();
 
   @override
   void dispose() {
-    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
   }
 
-  void _onSearchChanged() {
-    _searchQuery = _searchController.text;
-    _loadData();
+  List<Receipt> get _filteredReceipts {
+    var filtered = List<Receipt>.from(_receipts);
+
+    // Filter by category
+    if (_selectedCategory != null) {
+      filtered = filtered.where((r) => r.category == _selectedCategory).toList();
+    }
+
+    // Filter by search query
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filtered = filtered
+          .where((r) => r.merchantName.toLowerCase().contains(query))
+          .toList();
+    }
+
+    // Sort by date descending (most recent first)
+    filtered.sort((a, b) => b.date.compareTo(a.date));
+
+    return filtered;
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  double get _totalSpending {
+    return _filteredReceipts.fold<double>(0, (sum, r) => sum + r.amount);
+  }
 
-    try {
-      final categories = await DatabaseService.instance.getCategories();
-      final receipts = await DatabaseService.instance.getReceipts(
-        search: _searchQuery.isNotEmpty ? _searchQuery : null,
-        categoryId: _selectedCategoryId,
-      );
+  void _onCategorySelected(ExpenseCategory? category) {
+    setState(() {
+      _selectedCategory =
+          _selectedCategory == category ? null : category;
+    });
+  }
 
+  void _toggleSearch() {
+    setState(() {
+      _isSearching = !_isSearching;
+      if (!_isSearching) {
+        _searchQuery = '';
+        _searchController.clear();
+      }
+    });
+  }
+
+  void _changeLayoutDirection(LayoutDirection direction) {
+    setState(() {
+      _layoutDirection = direction;
+    });
+  }
+
+  Future<void> _navigateToAddReceipt({int? index}) async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddReceiptScreen(
+          editIndex: index,
+          existingReceipt: index != null ? _receipts[index] : null,
+        ),
+      ),
+    );
+
+    if (result == null) return;
+
+    if (result['deleted'] == true) {
+      final deleteIndex = result['index'] as int;
       setState(() {
-        _categories = categories;
-        _receipts = receipts;
-        _isLoading = false;
+        _receipts.removeAt(deleteIndex);
       });
-    } catch (e) {
-      setState(() => _isLoading = false);
+    } else if (result['saved'] == true) {
+      final receipt = result['receipt'] as Receipt;
+      final editIndex = result['index'] as int?;
+      setState(() {
+        if (editIndex != null && editIndex < _receipts.length) {
+          _receipts[editIndex] = receipt;
+        } else {
+          _receipts.add(receipt);
+        }
+      });
     }
   }
 
-  String _getCategoryName(int categoryId) {
-    final category = _categories.where((c) => c.id == categoryId).firstOrNull;
-    return category?.name ?? 'Unknown';
+  void _navigateToStats() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StatsScreen(receipts: _receipts),
+      ),
+    );
   }
 
-  Future<void> _confirmDelete(Receipt receipt) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Receipt'),
-        content: Text('Are you sure you want to delete "${receipt.title}"?'),
+  void _navigateToScan() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ScanReceiptScreen(),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    if (_isSearching) {
+      return AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _toggleSearch,
+        ),
+        title: TextField(
+          controller: _searchController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Search receipts...',
+            border: InputBorder.none,
+            filled: false,
+          ),
+          onChanged: (value) {
+            setState(() {
+              _searchQuery = value;
+            });
+          },
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.black)),
-          ),
+          if (_searchQuery.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.clear),
+              onPressed: () {
+                _searchController.clear();
+                setState(() {
+                  _searchQuery = '';
+                });
+              },
+            ),
         ],
+      );
+    }
+
+    return AppBar(
+      title: const Text('Receipt Tracker'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.search),
+          onPressed: _toggleSearch,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCategoryFilters() {
+    final categories = [null, ...ExpenseCategory.values];
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: categories.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final category = categories[index];
+          return CategoryChip(
+            category: category,
+            isSelected:
+                category == _selectedCategory,
+            onTap: () => _onCategorySelected(category),
+          );
+        },
       ),
     );
+  }
 
-    if (confirmed == true && receipt.id != null) {
-      await DatabaseService.instance.deleteReceipt(receipt.id!);
-      await StorageService.deleteImage(receipt.imagePath);
-      _loadData();
+  Widget _buildLayoutSwitcher() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _buildLayoutButton(
+              label: 'Paper-tape',
+              direction: LayoutDirection.paperTape,
+              icon: Icons.list,
+            ),
+            const SizedBox(width: 8),
+            _buildLayoutButton(
+              label: 'Torn-card',
+              direction: LayoutDirection.tornCard,
+              icon: Icons.credit_card,
+            ),
+            const SizedBox(width: 8),
+            _buildLayoutButton(
+              label: 'Bare-list',
+              direction: LayoutDirection.bareList,
+              icon: Icons.view_agenda,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLayoutButton({
+    required String label,
+    required LayoutDirection direction,
+    required IconData icon,
+  }) {
+    final isSelected = _layoutDirection == direction;
+    return OutlinedButton.icon(
+      onPressed: () => _changeLayoutDirection(direction),
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        side: BorderSide(
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary
+              : Colors.grey[400]!,
+          width: isSelected ? 2 : 1,
+        ),
+        backgroundColor: isSelected
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+            : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+    );
+  }
+
+  Widget _buildReceiptList() {
+    final filtered = _filteredReceipts;
+
+    if (filtered.isEmpty) {
+      return const Expanded(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey),
+              SizedBox(height: 16),
+              Text(
+                'No receipts found',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    switch (_layoutDirection) {
+      case LayoutDirection.paperTape:
+        return PaperTapeReceiptList(
+          receipts: filtered,
+          onReceiptTap: (index) {
+            final receipt = filtered[index];
+            final originalIndex = _receipts.indexOf(receipt);
+            _navigateToAddReceipt(index: originalIndex);
+          },
+        );
+      case LayoutDirection.tornCard:
+        return TornCardReceiptList(
+          receipts: filtered,
+          onReceiptTap: (index) {
+            final receipt = filtered[index];
+            final originalIndex = _receipts.indexOf(receipt);
+            _navigateToAddReceipt(index: originalIndex);
+          },
+        );
+      case LayoutDirection.bareList:
+        return BareListReceiptList(
+          receipts: filtered,
+          onReceiptTap: (index) {
+            final receipt = filtered[index];
+            final originalIndex = _receipts.indexOf(receipt);
+            _navigateToAddReceipt(index: originalIndex);
+          },
+        );
     }
   }
 
-  void _navigateToAddReceipt() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text('Add Receipt')),
-          body: Center(child: Text('Add receipt coming soon')),
+  Widget _buildBottomNav() {
+    return BottomNavigationBar(
+      currentIndex: 0,
+      onTap: (index) {
+        switch (index) {
+          case 0:
+            // Home - already here, do nothing
+            break;
+          case 1:
+            _navigateToScan();
+            break;
+          case 2:
+            _navigateToAddReceipt();
+            break;
+          case 3:
+            _navigateToStats();
+            break;
+        }
+      },
+      selectedItemColor: Theme.of(context).colorScheme.primary,
+      unselectedItemColor: Colors.grey,
+      items: const [
+        BottomNavigationBarItem(
+          icon: Icon(Icons.receipt_long_outlined),
+          activeIcon: Icon(Icons.receipt_long),
+          label: 'Home',
         ),
-      ),
-    );
-  }
-
-  void _navigateToDetail(Receipt receipt) {
-    final categoryName = _getCategoryName(receipt.categoryId);
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(receipt.title)),
-          body: Center(
-            child: Text(
-              'Detail coming soon\n\nCategory: $categoryName\nAmount: ${receipt.formattedAmount}\nDate: ${receipt.formattedDate}',
-              textAlign: TextAlign.center,
-            ),
-          ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.photo_camera_outlined),
+          activeIcon: Icon(Icons.photo_camera),
+          label: 'Scan',
         ),
-      ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.add_circle, size: 32),
+          activeIcon: Icon(Icons.add_circle, size: 32),
+          label: 'Add',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.bar_chart_outlined),
+          activeIcon: Icon(Icons.bar_chart),
+          label: 'Stats',
+        ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text(
-          'Receipts',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(
-            color: Colors.grey.shade300,
-            height: 1,
-          ),
-        ),
-      ),
+      appBar: _buildAppBar(),
       body: Column(
         children: [
-          // Search bar
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search receipts...',
-                hintStyle: const TextStyle(color: Colors.grey),
-                prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: Colors.grey),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: BorderSide(color: Colors.grey.shade400),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: Colors.black),
-                ),
-              ),
-              style: const TextStyle(color: Colors.black),
-            ),
+          SpendingSummaryCard(
+            totalAmount: _totalSpending,
+            receiptCount: _filteredReceipts.length,
           ),
-
-          // Category filter chips
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              children: [
-                _buildFilterChip('All', null),
-                ..._categories.map(
-                  (category) => _buildFilterChip(category.name, category.id),
-                ),
-              ],
-            ),
-          ),
-
-          // Receipt list or loading/empty state
-          Expanded(
-            child: _buildBody(),
-          ),
+          _buildCategoryFilters(),
+          _buildLayoutSwitcher(),
+          _buildReceiptList(),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToAddReceipt,
-        backgroundColor: Colors.black,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildFilterChip(String label, int? categoryId) {
-    final isSelected = _selectedCategoryId == categoryId;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: FilterChip(
-        label: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black,
-            fontSize: 13,
-          ),
-        ),
-        selected: isSelected,
-        onSelected: (_) {
-          setState(() {
-            _selectedCategoryId = categoryId;
-          });
-          _loadData();
-        },
-        backgroundColor: Colors.white,
-        selectedColor: Colors.black,
-        side: BorderSide(
-          color: isSelected ? Colors.black : Colors.grey.shade400,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        elevation: 0,
-        pressElevation: 0,
-        showCheckmark: false,
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.black),
-      );
-    }
-
-    if (_receipts.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.receipt_long, size: 64, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            const Text(
-              'No receipts yet',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Tap + to add your first receipt',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      itemCount: _receipts.length,
-      itemBuilder: (context, index) {
-        final receipt = _receipts[index];
-        final categoryName = _getCategoryName(receipt.categoryId);
-        return ReceiptCard(
-          receipt: receipt,
-          categoryName: categoryName,
-          onTap: () => _navigateToDetail(receipt),
-          onDelete: () => _confirmDelete(receipt),
-        );
-      },
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
 }

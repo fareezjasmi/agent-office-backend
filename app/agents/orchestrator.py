@@ -39,6 +39,12 @@ AGENT_STATUS: dict[str, AgentStatus] = {a.id: AgentStatus.IDLE for a in ROSTER}
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2] / "workspace"
 
 MAX_EVENTS = 500
+
+# Reading an attached reference image returns the whole file as base64 inside
+# one JSON message on the CLI's stdout; the SDK's default 1 MiB buffer kills
+# the stream ("JSON message exceeded maximum buffer size"). 32 MiB covers the
+# largest allowed upload (8 MB -> ~11 MB base64) with room to spare.
+SDK_MAX_BUFFER = 32 * 1024 * 1024
 _VERDICT_FAIL = re.compile(r"\bFAIL\b")
 _VERDICT_PASS = re.compile(r"\bPASS\b")
 
@@ -283,6 +289,7 @@ async def run_goal(run: Run) -> None:
         mcp_servers={"sandbox": sandbox_server},
         cwd=str(workdir),
         model=settings.pm_model,
+        max_buffer_size=SDK_MAX_BUFFER,
         env=sdk_env(),
     )
 
