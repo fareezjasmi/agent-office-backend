@@ -11,11 +11,13 @@ enum LayoutDirection {
 class PaperTapeReceiptList extends StatelessWidget {
   final List<Receipt> receipts;
   final Function(int) onReceiptTap;
+  final Function(String)? onMerchantTap;
 
   const PaperTapeReceiptList({
     super.key,
     required this.receipts,
     required this.onReceiptTap,
+    this.onMerchantTap,
   });
 
   @override
@@ -52,25 +54,28 @@ class PaperTapeReceiptList extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          receipt.merchantName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                    child: GestureDetector(
+                      onLongPress: () => onMerchantTap?.call(receipt.merchantName),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            receipt.merchantName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          receipt.formattedDate,
-                          style: TextStyle(
-                            color: Colors.grey[500],
-                            fontSize: 12,
+                          const SizedBox(height: 2),
+                          Text(
+                            receipt.formattedDate,
+                            style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   Text(
@@ -94,11 +99,13 @@ class PaperTapeReceiptList extends StatelessWidget {
 class TornCardReceiptList extends StatelessWidget {
   final List<Receipt> receipts;
   final Function(int) onReceiptTap;
+  final Function(String)? onMerchantTap;
 
   const TornCardReceiptList({
     super.key,
     required this.receipts,
     required this.onReceiptTap,
+    this.onMerchantTap,
   });
 
   @override
@@ -145,11 +152,14 @@ class TornCardReceiptList extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Merchant name
-                    Text(
-                      receipt.merchantName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                    GestureDetector(
+                      onLongPress: () => onMerchantTap?.call(receipt.merchantName),
+                      child: Text(
+                        receipt.merchantName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -259,11 +269,13 @@ class TornCardReceiptList extends StatelessWidget {
 class BareListReceiptList extends StatelessWidget {
   final List<Receipt> receipts;
   final Function(int) onReceiptTap;
+  final Function(String)? onMerchantTap;
 
   const BareListReceiptList({
     super.key,
     required this.receipts,
     required this.onReceiptTap,
+    this.onMerchantTap,
   });
 
   @override
@@ -307,25 +319,28 @@ class BareListReceiptList extends StatelessWidget {
                   // Store name (left-aligned, wider)
                   Expanded(
                     flex: 2,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          receipt.merchantName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                    child: GestureDetector(
+                      onLongPress: () => onMerchantTap?.call(receipt.merchantName),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            receipt.merchantName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          receipt.category.displayName,
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 11,
+                          Text(
+                            receipt.category.displayName,
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 11,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),

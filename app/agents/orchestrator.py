@@ -45,6 +45,11 @@ MAX_EVENTS = 500
 # the stream ("JSON message exceeded maximum buffer size"). 32 MiB covers the
 # largest allowed upload (8 MB -> ~11 MB base64) with room to spare.
 SDK_MAX_BUFFER = 32 * 1024 * 1024
+
+# Subagents whose dispatches are tracked as board tasks (write access, own a
+# per-task sandbox container). The reviewer is handled separately: it gates
+# the most recent in-progress worker task instead of creating one.
+_WORKER_SUBAGENTS = {"coder", "devops"}
 _VERDICT_FAIL = re.compile(r"\bFAIL\b")
 _VERDICT_PASS = re.compile(r"\bPASS\b")
 
@@ -131,31 +136,35 @@ def _result_text(block: ToolResultBlock) -> str:
     return ""
 
 
-def _on_dispatch(run: Run, block: ToolUseBlock, dispatches: dict) -> None:
+def _on_dispatch(
+    run: Run, block: ToolUseBlock, dispatches: dict, active_worker: dict
+) -> None:
     """PM invoked the Agent tool — a task is being handed to a subagent."""
     subagent = block.input.get("subagent_type", "")
     title = block.input.get("description") or block.input.get("prompt", "")[:80]
     task: Task | None = None
 
-    if subagent == "coder":
+    if subagent in _WORKER_SUBAGENTS:
+        active_worker["id"] = subagent  # sandbox events attribute to this agent
         task = Task(
             title=title,
-            assigned_agent_id="coder",
+            assigned_agent_id=subagent,
             status=TaskStatus.IN_PROGRESS,
             input=block.input.get("prompt", ""),
             created_by="pm",
         )
         run.tasks.append(task)
-        set_agent_status("coder", AgentStatus.WORKING)
+        set_agent_status(subagent, AgentStatus.WORKING)
         _publish_task(run, task)
     elif subagent == "reviewer":
         # Heuristic: the reviewer is checking the most recent in-progress
-        # coder task. Good enough while dispatch is strictly sequential.
+        # worker task. Good enough while dispatch is strictly sequential.
         task = next(
             (
                 t
                 for t in reversed(run.tasks)
-                if t.assigned_agent_id == "coder" and t.status == TaskStatus.IN_PROGRESS
+                if t.assigned_agent_id in _WORKER_SUBAGENTS
+                and t.status == TaskStatus.IN_PROGRESS
             ),
             None,
         )
@@ -187,8 +196,8 @@ async def _on_dispatch_result(
         return
     dispatches.pop(block.tool_use_id, None)
 
-    if subagent == "coder":
-        set_agent_status("coder", AgentStatus.IDLE)
+    if subagent in _WORKER_SUBAGENTS:
+        set_agent_status(subagent, AgentStatus.IDLE)
         if task:
             task.output = text
             _publish_task(run, task)
@@ -209,7 +218,7 @@ async def _on_dispatch_result(
 
 
 async def _handle_message(
-    run: Run, message, dispatches: dict, sandbox: ContainerManager
+    run: Run, message, dispatches: dict, sandbox: ContainerManager, active_worker: dict
 ) -> None:
     parent_id = getattr(message, "parent_tool_use_id", None)
 
@@ -228,7 +237,7 @@ async def _handle_message(
             elif isinstance(block, ToolUseBlock):
                 # "Task" is the pre-v2.1.63 name for the Agent tool.
                 if block.name in ("Agent", "Task"):
-                    _on_dispatch(run, block, dispatches)
+                    _on_dispatch(run, block, dispatches, active_worker)
                 else:
                     _event(run, "pm", "tool_use", block.name)
 
@@ -266,8 +275,13 @@ async def run_goal(run: Run) -> None:
     existing_project = run.workspace is not None
 
     stack = STACKS.get(run.stack, STACKS[DEFAULT_STACK])
+    # Which worker subagent currently owns the sandbox — its commands show
+    # under that agent in the live feed (coder until the first dispatch).
+    active_worker = {"id": "coder"}
     sandbox, sandbox_server = build_sandbox(
-        run, workdir, on_event=lambda kind, detail: _event(run, "coder", kind, detail)
+        run,
+        workdir,
+        on_event=lambda kind, detail: _event(run, active_worker["id"], kind, detail),
     )
     options = ClaudeAgentOptions(
         system_prompt=pm_system_prompt(stack, existing_project=existing_project),
@@ -307,7 +321,7 @@ async def run_goal(run: Run) -> None:
 
     try:
         async for message in query(prompt=_goal_stream(), options=options):
-            await _handle_message(run, message, dispatches, sandbox)
+            await _handle_message(run, message, dispatches, sandbox, active_worker)
     except Exception as exc:  # noqa: BLE001 — surface any SDK failure on the run
         run.status = RunStatus.FAILED
         run.result = f"error: {exc}"

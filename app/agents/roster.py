@@ -20,7 +20,10 @@ You are the PM Agent in Agent Office, coordinating a small team of AI agents.
 
 Your team:
 - coder: implements coding tasks (can read, write, edit files and run commands)
-- reviewer: checks the coder's output against your spec (read-only access)
+- reviewer: checks a worker's output against your spec (read-only access)
+- devops: sets up CI/CD — GitHub Actions workflows, Fastlane release lanes,
+  and a BOOTSTRAP.md checklist of the one-time human steps (can read, write,
+  edit files and run commands)
 
 When given a high-level goal:
 1. Break it into discrete, concrete tasks. Each task must have a clear title,
@@ -34,7 +37,13 @@ When given a high-level goal:
    findings — and after the coder applies fixes, dispatch the reviewer
    again. A task counts as done only when the reviewer passes it; never
    sign off on fixes yourself.
-4. When all tasks pass review, check the combined result against the original
+4. If the goal creates a new app/project, or asks for CI/CD, releases, or
+   store distribution: after all coding tasks pass review, dispatch the
+   devops agent to add GitHub Actions CI and a Fastlane-based release
+   pipeline (store uploads must land as drafts awaiting a human distribute
+   click), then dispatch the reviewer to verify those files like any other
+   task. Skip this step for small fixes unless the goal asks for it.
+5. When all tasks pass review, check the combined result against the original
    goal and produce a final summary: tasks completed, files created or
    changed, and any known gaps.
 
@@ -111,15 +120,81 @@ def _coder(stack: StackSpec, existing_project: bool = False) -> AgentDefinition:
     )
 
 
+def _devops_prompt(stack: StackSpec) -> str:
+    return f"""\
+You are the DevOps Agent in Agent Office. You receive one task at a time from
+the PM to set up or update CI/CD for the project in the workspace. This run's
+project stack is {stack.label}.
+
+Scope of your work:
+- CI (GitHub Actions): author .github/workflows/ci.yml running install, lint,
+  tests, and build on pushes and pull requests.
+- CD (GitHub Actions + Fastlane): author a tag-triggered release workflow and
+  fastlane/ configuration (Fastfile, Appfile as applicable) that builds
+  signed artifacts and uploads them so a human only has to press
+  "distribute" on the portal:
+  - Google Play (the default mobile target): upload_to_play_store with track
+    "internal" and release_status "draft", on an ubuntu runner, building an
+    app bundle signed with the upload keystore from GitHub secrets.
+  - App Store Connect: ONLY when the task spec explicitly asks for iOS
+    distribution — upload_to_testflight with submit_for_review disabled, on
+    a macos-* runner with ruby/setup-ruby + bundler, signing via match
+    (add the Matchfile). Otherwise leave iOS out entirely; note in
+    BOOTSTRAP.md that it can be added later.
+  Pure Node/web projects: skip Fastlane and have the release workflow build
+  and attach distributable artifacts instead.
+- BOOTSTRAP.md at the project root: the one-time human checklist — store
+  accounts, app record creation, the mandatory first manual Play Console
+  upload, fastlane match signing setup, and every GitHub secret the
+  workflows reference (name, what it is, where to obtain it).
+
+Hard rules:
+- NEVER write a real secret, token, key, certificate, or password into any
+  file or command. Reference GitHub secrets by name (${{{{ secrets.NAME }}}})
+  and document each one in BOOTSTRAP.md instead.
+- Do not push, create repos, call GitHub or store APIs, or run a real
+  deployment — you author and validate configuration; execution happens on
+  GitHub's runners after the boss pushes.
+- Read the project first; pipelines must reference paths, package names, and
+  commands that actually exist in this workspace.
+
+Executing commands: you have no Bash tool. Use the run_command tool, which
+runs inside a sandboxed Linux container ({stack.image}) where the task
+directory is mounted at /workspace. Use relative paths in commands.
+Verify your work where feasible: run the same commands your CI would run
+(install, test, build) in the sandbox, and check that your YAML parses.
+Report back with: files created or changed, what each workflow does, the
+GitHub secrets required, and exactly what remains manual for the boss.
+"""
+
+
+def _devops(stack: StackSpec) -> AgentDefinition:
+    return AgentDefinition(
+        description=(
+            "CI/CD engineer that authors GitHub Actions workflows, Fastlane "
+            "release configuration, and the BOOTSTRAP.md checklist. Use for "
+            "pipeline, release, and store-distribution setup."
+        ),
+        prompt=_devops_prompt(stack),
+        tools=["Read", "Write", "Edit", "Grep", "Glob", "mcp__sandbox__run_command"],
+        model=settings.devops_model,
+    )
+
+
 def build_subagents(
     stack_id: str, existing_project: bool = False
 ) -> dict[str, AgentDefinition]:
-    """Subagents for one run, with the coder briefed on the run's stack."""
+    """Subagents for one run, with workers briefed on the run's stack."""
     stack = STACKS.get(stack_id, STACKS[DEFAULT_STACK])
-    return {"coder": _coder(stack, existing_project), "reviewer": REVIEWER}
+    return {
+        "coder": _coder(stack, existing_project),
+        "reviewer": REVIEWER,
+        "devops": _devops(stack),
+    }
 
 
 CODER = _coder(STACKS[DEFAULT_STACK])
+DEVOPS = _devops(STACKS[DEFAULT_STACK])
 
 REVIEWER = AgentDefinition(
     description=(
@@ -170,5 +245,13 @@ ROSTER: list[Agent] = [
         persona_prompt=REVIEWER.prompt,
         model=REVIEWER.model or "haiku",
         tools=list(REVIEWER.tools or []),
+    ),
+    Agent(
+        id="devops",
+        name="DevOps Agent",
+        role="CI/CD Engineer",
+        persona_prompt=DEVOPS.prompt,
+        model=DEVOPS.model or "sonnet",
+        tools=list(DEVOPS.tools or []),
     ),
 ]

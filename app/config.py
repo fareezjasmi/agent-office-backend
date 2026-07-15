@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     pm_model: str = "sonnet"
     coder_model: str = "sonnet"
     reviewer_model: str = "haiku"
+    devops_model: str = "sonnet"
 
     # Sandbox image for Flutter-stack goals. Must be linux/arm64 on Apple
     # Silicon or builds crawl under emulation; the default ships both.

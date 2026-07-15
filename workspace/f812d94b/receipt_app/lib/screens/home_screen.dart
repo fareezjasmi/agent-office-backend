@@ -3,7 +3,10 @@ import 'package:receipt_app/models/receipt.dart';
 import 'package:receipt_app/screens/add_receipt_screen.dart';
 import 'package:receipt_app/screens/scan_receipt_screen.dart';
 import 'package:receipt_app/screens/stats_screen.dart';
+import 'package:receipt_app/screens/search_screen.dart';
+import 'package:receipt_app/screens/store_detail_screen.dart';
 import 'package:receipt_app/widgets/category_chip.dart';
+import 'package:receipt_app/screens/monthly_view_screen.dart';
 import 'package:receipt_app/widgets/receipt_list_layouts.dart';
 import 'package:receipt_app/widgets/spending_summary_card.dart';
 
@@ -108,6 +111,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _navigateToStoreDetail(String merchantName) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StoreDetailScreen(
+          merchantName: merchantName,
+          allReceipts: _receipts,
+        ),
+      ),
+    );
+  }
+
   void _navigateToStats() {
     Navigator.push(
       context,
@@ -117,11 +132,36 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _navigateToSearch() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SearchScreen(
+          receipts: _receipts,
+          onReceiptTap: (receipt) {
+            final index = _receipts.indexOf(receipt);
+            Navigator.pop(context);
+            _navigateToAddReceipt(index: index);
+          },
+        ),
+      ),
+    );
+  }
+
   void _navigateToScan() {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => const ScanReceiptScreen(),
+      ),
+    );
+  }
+
+  void _navigateToMonthly() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MonthlyViewScreen(receipts: _receipts),
       ),
     );
   }
@@ -280,6 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
             final originalIndex = _receipts.indexOf(receipt);
             _navigateToAddReceipt(index: originalIndex);
           },
+          onMerchantTap: _navigateToStoreDetail,
         );
       case LayoutDirection.tornCard:
         return TornCardReceiptList(
@@ -289,6 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
             final originalIndex = _receipts.indexOf(receipt);
             _navigateToAddReceipt(index: originalIndex);
           },
+          onMerchantTap: _navigateToStoreDetail,
         );
       case LayoutDirection.bareList:
         return BareListReceiptList(
@@ -298,6 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
             final originalIndex = _receipts.indexOf(receipt);
             _navigateToAddReceipt(index: originalIndex);
           },
+          onMerchantTap: _navigateToStoreDetail,
         );
     }
   }
@@ -311,12 +354,18 @@ class _HomeScreenState extends State<HomeScreen> {
             // Home - already here, do nothing
             break;
           case 1:
-            _navigateToScan();
+            _navigateToSearch();
             break;
           case 2:
-            _navigateToAddReceipt();
+            _navigateToScan();
             break;
           case 3:
+            _navigateToAddReceipt();
+            break;
+          case 4:
+            _navigateToMonthly();
+            break;
+          case 5:
             _navigateToStats();
             break;
         }
@@ -330,6 +379,11 @@ class _HomeScreenState extends State<HomeScreen> {
           label: 'Home',
         ),
         BottomNavigationBarItem(
+          icon: Icon(Icons.search_outlined),
+          activeIcon: Icon(Icons.search),
+          label: 'Search',
+        ),
+        BottomNavigationBarItem(
           icon: Icon(Icons.photo_camera_outlined),
           activeIcon: Icon(Icons.photo_camera),
           label: 'Scan',
@@ -338,6 +392,11 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icon(Icons.add_circle, size: 32),
           activeIcon: Icon(Icons.add_circle, size: 32),
           label: 'Add',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.calendar_today_outlined),
+          activeIcon: Icon(Icons.calendar_today),
+          label: 'Calendar',
         ),
         BottomNavigationBarItem(
           icon: Icon(Icons.bar_chart_outlined),
